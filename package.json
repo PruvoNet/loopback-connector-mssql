@@ -1,5 +1,5 @@
 {
-  "name": "loopback-connector-mssql",
+  "name": "loopback-connector-mssql-pruvo",
   "version": "3.8.0",
   "description": "Microsoft SQL Server connector for LoopBack",
   "engines": {
