@@ -18,7 +18,7 @@
   "dependencies": {
     "async": "^3.1.0",
     "debug": "^4.3.1",
-    "loopback-connector": "^5.0.1",
+    "loopback-connector": "^6.2.2",
     "mssql": "^6.4.0",
     "strong-globalize": "^5.0.0"
   },
