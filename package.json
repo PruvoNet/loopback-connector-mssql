@@ -18,7 +18,7 @@
   "dependencies": {
     "async": "^3.1.0",
     "debug": "^4.3.1",
-    "loopback-connector": "github:PruvoNet/loopback-connector#5ac4ee6c1c5a1a1a2054e2e25effaaa332d41be6",
+    "loopback-connector": "github:PruvoNet/loopback-connector#b3fd989d64fa6042811a5b93434f29233b73cfd5",
     "mssql": "^6.4.0",
     "strong-globalize": "^5.0.0"
   },
