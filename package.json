@@ -18,7 +18,7 @@
   "dependencies": {
     "async": "^3.1.0",
     "debug": "^4.3.1",
-    "loopback-connector": "github:PruvoNet/loopback-connector#b3fd989d64fa6042811a5b93434f29233b73cfd5",
+    "loopback-connector": "github:PruvoNet/loopback-connector#e843b66ff1e6070950019fb69eecb94256c59bb4",
     "mssql": "^6.4.0",
     "strong-globalize": "^5.0.0"
   },
@@ -28,7 +28,7 @@
     "eslint-config-loopback": "^13.1.0",
     "juggler-v3": "file:./deps/juggler-v3",
     "juggler-v4": "file:./deps/juggler-v4",
-    "loopback-datasource-juggler": "^3.0.0 || ^4.0.0",
+    "loopback-datasource-juggler": "github:PruvoNet/loopback-datasource-juggler#9504d1f8f3293df7bfa4de72bd52df615f9f399c",
     "mocha": "^6.1.4",
     "rc": "^1.2.8",
     "should": "^13.2.3",
