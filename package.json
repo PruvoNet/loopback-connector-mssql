@@ -39,6 +39,8 @@
     "lint": "eslint .",
     "pretest": "node pretest.js",
     "test": "mocha test/*.test.js node_modules/juggler-v3/test.js node_modules/juggler-v4/test.js",
+    "test:unit": "node --test test/unit/*.js",
+    "test:integration": "node --test test/integration/*.js",
     "posttest": "npm run lint"
   },
   "files": [

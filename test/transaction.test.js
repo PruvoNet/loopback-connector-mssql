@@ -95,5 +95,26 @@ describe('transactions', function() {
     });
 
     it('should not see the rolledback insert', expectToFindPosts(post, 0));
+
+    // PRV-7808: a statement issued with a transaction that already ended still runs on the pool, exactly as
+    // before, but the connector warns about it. loopback-datasource-juggler clears `connection` when a
+    // transaction ends; mirror that here.
+    it('should run a statement on the ended transaction outside it and warn', function(done) {
+      currentTx.connection = null;
+      const lines = [];
+      const original = {warn: console.warn, error: console.error};
+      console.warn = (...args) => lines.push(args.join(' '));
+      console.error = (...args) => lines.push(args.join(' '));
+      Post.create({title: 'after rollback', content: 'x'}, {transaction: currentTx}, function(err) {
+        console.warn = original.warn;
+        console.error = original.error;
+        if (err) return done(err);
+        lines.length.should.be.eql(1);
+        lines[0].should.match(/ended transaction/);
+        done();
+      });
+    });
+
+    it('should have persisted that statement on its own', expectToFindPosts({title: 'after rollback'}, 1));
   });
 });
