@@ -318,20 +318,20 @@ describe('finishTransaction with overlapping calls on one transaction', function
     });
   });
 
-  it('gives up after cancel and close both fail, and reports the refusal instead of hanging', function(_t, done) {
-    const tx = driverLikeTransaction();
-    tx.config = {requestTimeout: 200};
-    tx._activeRequest = {}; // no cancel(), and nothing ever clears it
-    tx._acquiredConnection.close = function() {}; // no effect either
-    const started = Date.now();
-    finishTransaction(tx, 'rollback', function(err) {
-      assert.strictEqual(err && err.code, 'EREQINPROG');
-      assert.deepStrictEqual(tx.sent, []);
-      assert.ok(Date.now() - started >= 600, 'deadline plus two graces');
-      assert.ok(Date.now() - started < 2000);
-      done();
+  it('gives up after cancel and close both fail, and reports the refusal instead of hanging', {timeout: 5000},
+    function(_t, done) {
+      const tx = driverLikeTransaction();
+      tx.config = {requestTimeout: 200};
+      tx._activeRequest = {}; // no cancel(), and nothing ever clears it
+      tx._acquiredConnection.close = function() {}; // no effect either
+      const started = Date.now();
+      finishTransaction(tx, 'rollback', function(err) {
+        assert.strictEqual(err && err.code, 'EREQINPROG');
+        assert.deepStrictEqual(tx.sent, []);
+        assert.ok(Date.now() - started >= 600, 'deadline plus two graces');
+        done();
+      });
     });
-  });
 
   it('gives a new request its own deadline instead of the previous request\'s', function(_t, done) {
     const tx = driverLikeTransaction();

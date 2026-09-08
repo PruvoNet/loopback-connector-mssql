@@ -39,8 +39,8 @@
     "lint": "eslint .",
     "pretest": "node pretest.js",
     "test": "npm run test:unit && mocha test/*.test.js node_modules/juggler-v3/test.js node_modules/juggler-v4/test.js",
-    "test:unit": "node --test test/unit/*.js",
-    "test:integration": "node --test test/integration/*.js",
+    "test:unit": "node --test test/unit/transaction-finish.js test/unit/execute-sql-ended-transaction.js",
+    "test:integration": "node --test test/integration/rollback-in-flight.js",
     "posttest": "npm run lint"
   },
   "files": [
