@@ -9,7 +9,10 @@ const {describe, it, beforeEach, afterEach} = require('node:test');
 const assert = require('node:assert');
 const {MsSQL} = require('../../lib/mssql');
 
-// strong-globalize's g.warn writes through console; capture both channels it may use.
+/**
+ * strong-globalize's g.warn writes through console; capture both channels it may use.
+ * @return {{lines: string[], restore: Function}}
+ */
 function captureConsole() {
   const lines = [];
   const original = {warn: console.warn, error: console.error};

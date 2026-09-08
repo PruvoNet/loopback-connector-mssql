@@ -31,11 +31,22 @@ const config = host && {
 const LOCK_TABLE = 'tempdb..prv7808_lock';
 const SLOW_STATEMENT = 'WAITFOR DELAY \'00:00:03\'';
 
+/**
+ * Run `sql` on the pool, outside any transaction.
+ * @param {mssql.ConnectionPool} pool
+ * @param {string} sql
+ * @return {Promise}
+ */
 function query(pool, sql) {
   return new mssql.Request(pool).query(sql);
 }
 
-// Start `sql` inside `tx` and return a promise of its outcome plus a settled flag, without awaiting it.
+/**
+ * Start `sql` inside `tx` and return its outcome as `{promise, settled, error}`, without awaiting it.
+ * @param {mssql.Transaction} tx
+ * @param {string} sql
+ * @return {Object}
+ */
 function startInTransaction(tx, sql) {
   const state = {settled: false};
   state.promise = new mssql.Request(tx).query(sql).then(
@@ -50,10 +61,19 @@ function startInTransaction(tx, sql) {
   return state;
 }
 
+/**
+ * @param {number} ms
+ * @return {Promise<void>}
+ */
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Roll back through the connector's finishTransaction, as LoopBack would.
+ * @param {mssql.Transaction} tx
+ * @return {Promise<void>}
+ */
 function rollbackViaConnector(tx) {
   return new Promise((resolve, reject) => {
     finishTransaction(tx, 'rollback', (err) => (err ? reject(err) : resolve()));

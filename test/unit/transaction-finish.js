@@ -11,14 +11,23 @@ const assert = require('node:assert');
 const mixinTransaction = require('../../lib/transaction');
 const {finishTransaction} = mixinTransaction;
 
+/**
+ * An error shaped like the driver's, with a `code`.
+ * @param {string} code
+ * @return {Error}
+ */
 function driverError(code) {
   const err = new Error(code);
   err.code = code;
   return err;
 }
 
-// Stub of mssql.Transaction: `failWith` lists the error codes to return on successive calls
-// (undefined = success). `_activeRequest` mirrors the driver's in-progress marker.
+/**
+ * Stub of mssql.Transaction: `failWith` lists the error codes to return on successive calls
+ * (undefined = success). `_activeRequest` mirrors the driver's in-progress marker.
+ * @param {string[]} failWith
+ * @return {Object} the stub, with `calls` counters
+ */
 function stubTransaction(failWith) {
   const calls = {commit: 0, rollback: 0};
   const tx = {
@@ -125,9 +134,12 @@ describe('finishTransaction', function() {
   });
 });
 
-// Stub closer to mssql's tedious Transaction: the pre-checks read `_acquiredConnection` and
-// `_activeRequest`, and the connection is dropped only when the driver call completes. Two calls
-// reaching the driver in the same tick both pass the pre-checks; the second completion then crashes.
+/**
+ * Stub closer to mssql's tedious Transaction: the pre-checks read `_acquiredConnection` and
+ * `_activeRequest`, and the connection is dropped only when the driver call completes. Two calls
+ * reaching the driver in the same tick both pass the pre-checks; the second completion then crashes.
+ * @return {Object} the stub, with `sent` listing the operations that reached the driver
+ */
 function driverLikeTransaction() {
   const tx = {_activeRequest: {}, _acquiredConnection: {}, sent: []};
   ['commit', 'rollback'].forEach(function(op) {
