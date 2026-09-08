@@ -60,12 +60,16 @@ describe('finishTransaction', function() {
     });
   });
 
-  it('keeps waiting while the driver keeps refusing', function(_t, done) {
+  it('keeps waiting while the caller keeps starting new statements', function(_t, done) {
     const tx = stubTransaction(['EREQINPROG', 'EREQINPROG']);
     tx._activeRequest = {};
+    // The first statement ends and the caller immediately starts another one; the driver refuses again.
+    setTimeout(function() {
+      tx._activeRequest = {};
+    }, 150);
     setTimeout(function() {
       tx._activeRequest = null;
-    }, 150);
+    }, 300);
     finishTransaction(tx, 'rollback', function(err) {
       assert.ifError(err);
       assert.strictEqual(tx.calls.rollback, 3);
@@ -313,6 +317,30 @@ describe('finishTransaction with overlapping calls on one transaction', function
       assert.deepStrictEqual(tx.sent, []);
       assert.ok(Date.now() - started >= 600, 'deadline plus two graces');
       assert.ok(Date.now() - started < 2000);
+      done();
+    });
+  });
+
+  it('gives a new request its own deadline instead of the previous request\'s', function(_t, done) {
+    const tx = driverLikeTransaction();
+    tx.config = {requestTimeout: 200};
+    const first = {cancel: function() { first.cancelled = true; }};
+    const second = {cancel: function() { second.cancelled = true; }};
+    tx._activeRequest = first;
+    // The first statement ends at 100 ms and the caller immediately starts a second one, which runs until
+    // 350 ms: past the first request's deadline (200 ms) but within its own (100 + 200 = 300 ms would be
+    // the earliest cancel; the driver ends it at 350 ms). Under the old code it was cancelled at 200 ms.
+    setTimeout(function() {
+      tx._activeRequest = second;
+    }, 100);
+    setTimeout(function() {
+      tx._activeRequest = null;
+    }, 350);
+    finishTransaction(tx, 'rollback', function(err) {
+      assert.ifError(err);
+      assert.strictEqual(first.cancelled, undefined);
+      assert.strictEqual(second.cancelled, true, 'second request is cancelled at its own deadline, ~300 ms');
+      assert.deepStrictEqual(tx.sent, ['rollback']);
       done();
     });
   });
