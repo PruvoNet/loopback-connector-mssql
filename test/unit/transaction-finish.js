@@ -23,6 +23,7 @@ function stubTransaction(failWith) {
   const calls = {commit: 0, rollback: 0};
   const tx = {
     _activeRequest: null,
+    _acquiredConnection: {},
     calls,
   };
   ['commit', 'rollback'].forEach(function(op) {
@@ -275,6 +276,43 @@ describe('finishTransaction with overlapping calls on one transaction', function
       assert.strictEqual(err && err.code, 'EREQINPROG');
       assert.strictEqual(request.cancelled, true);
       assert.deepStrictEqual(tx.sent, ['rollback']);
+      done();
+    });
+  });
+
+  it('closes the connection when a cancelled request does not end, then rolls back', function(_t, done) {
+    const tx = driverLikeTransaction();
+    tx.config = {requestTimeout: 200};
+    const request = {cancel: function() { request.cancelled = true; }}; // cancel has no effect
+    tx._acquiredConnection.close = function() {
+      tx._acquiredConnection.closed = true;
+      // The driver ends the request once its socket is gone.
+      setTimeout(function() {
+        tx._activeRequest = null;
+      }, 50);
+    };
+    tx._activeRequest = request;
+    const started = Date.now();
+    finishTransaction(tx, 'rollback', function(err) {
+      assert.ifError(err);
+      assert.strictEqual(request.cancelled, true);
+      assert.deepStrictEqual(tx.sent, ['rollback']);
+      assert.ok(Date.now() - started >= 400, 'cancel at 200 ms, close one grace later');
+      done();
+    });
+  });
+
+  it('gives up after cancel and close both fail, and reports the refusal instead of hanging', function(_t, done) {
+    const tx = driverLikeTransaction();
+    tx.config = {requestTimeout: 200};
+    tx._activeRequest = {}; // no cancel(), and nothing ever clears it
+    tx._acquiredConnection.close = function() {}; // no effect either
+    const started = Date.now();
+    finishTransaction(tx, 'rollback', function(err) {
+      assert.strictEqual(err && err.code, 'EREQINPROG');
+      assert.deepStrictEqual(tx.sent, []);
+      assert.ok(Date.now() - started >= 600, 'deadline plus two graces');
+      assert.ok(Date.now() - started < 2000);
       done();
     });
   });

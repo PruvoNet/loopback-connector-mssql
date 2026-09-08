@@ -111,6 +111,7 @@ describe('rollback while a statement is in flight (PRV-7808)', {skip: !config &&
   });
 
   it('works when the in-flight statement is a later one in a multi-statement transaction', async () => {
+    const before = (await query(pool, `SELECT n FROM ${LOCK_TABLE} WHERE id = 1`)).recordset[0].n;
     const tx = new mssql.Transaction(pool);
     await tx.begin();
     await new mssql.Request(tx).query(`UPDATE ${LOCK_TABLE} SET n = n + 1 WHERE id = 1`);
@@ -123,7 +124,7 @@ describe('rollback while a statement is in flight (PRV-7808)', {skip: !config &&
 
     // The row lock taken by the UPDATE is gone and the update itself was undone.
     const result = await query(pool, `SET LOCK_TIMEOUT 2000; SELECT n FROM ${LOCK_TABLE} WITH (UPDLOCK) WHERE id = 1`);
-    assert.strictEqual(result.recordset[0].n, 0);
+    assert.strictEqual(result.recordset[0].n, before);
   });
 
   it('does not wait forever when the server aborts the transaction while the rollback is waiting', async () => {
