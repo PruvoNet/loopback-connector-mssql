@@ -96,4 +96,38 @@ describe('transactions', function() {
 
     it('should not see the rolledback insert', expectToFindPosts(post, 0));
   });
+
+  // PRV-7808: a statement issued with a transaction that already ended still runs on the pool, exactly as
+  // before, but the connector warns about it. loopback-datasource-juggler clears `connection` when a
+  // transaction ends; mirror that here. Its own block, so a filtered run does not inherit the open
+  // transaction the `rollback` block's hook leaves behind.
+  describe('statement on an ended transaction', function() {
+    const consoleOriginal = {warn: console.warn, error: console.error};
+    afterEach(function() {
+      console.warn = consoleOriginal.warn;
+      console.error = consoleOriginal.error;
+    });
+
+    it('should run a statement on the ended transaction outside it and warn', function(done) {
+      // Self-contained: opens and ends its own transaction, so it can run alone.
+      Transaction.begin(db.connector, Transaction.READ_COMMITTED, function(err, tx) {
+        if (err) return done(err);
+        tx.rollback(function(err) {
+          if (err) return done(err);
+          tx.connection = null;
+          const lines = [];
+          console.warn = (...args) => lines.push(args.join(' '));
+          console.error = (...args) => lines.push(args.join(' '));
+          Post.create({title: 'after rollback', content: 'x'}, {transaction: tx}, function(err) {
+            if (err) return done(err);
+            // Other libraries may print through console too (e.g. a driver deprecation notice on first
+            // connect); count only the connector's warning.
+            lines.filter((line) => /ended transaction/.test(line)).length.should.be.eql(1);
+            // It ran on the pool, so it is committed on its own.
+            expectToFindPosts({title: 'after rollback'}, 1)(done);
+          });
+        });
+      });
+    });
+  });
 });
