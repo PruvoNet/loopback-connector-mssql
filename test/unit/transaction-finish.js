@@ -494,6 +494,63 @@ describe('finishTransaction restoring READ COMMITTED', function() {
     });
   });
 
+  it('keeps a failed-reset connection from a waiting acquire when the commit releases it', async function() {
+    const path = require('node:path');
+    const {Pool} = require(require.resolve('tarn', {paths: [path.dirname(require.resolve('mssql'))]}));
+    let created = 0;
+    const pool = new Pool({
+      create: function(cb) {
+        cb(null, {id: ++created});
+      },
+      destroy: function() {},
+      // Same check as mssql's tedious pool.
+      validate: function(connection) {
+        return !connection.hasError;
+      },
+      min: 0,
+      max: 1,
+    });
+    const txConnection = await pool.acquire().promise;
+    const waiting = pool.acquire().promise;
+
+    const tx = stubWithLevel(mssql.ISOLATION_LEVEL.READ_UNCOMMITTED);
+    tx._acquiredConnection = txConnection;
+    // Like mssql 6.4.1: the connection goes back to the pool before the callback runs.
+    tx.commit = function(cb) {
+      const connection = tx._acquiredConnection;
+      tx._acquiredConnection = null;
+      pool.release(connection);
+      setImmediate(cb, null);
+    };
+
+    await new Promise(function(resolve, reject) {
+      finishTransaction(tx, 'commit', function(err) {
+        return err ? reject(err) : resolve();
+      });
+    });
+    const handedOut = await waiting;
+    // tarn's destroy waits for every borrowed connection, and its reaper timer keeps the process alive.
+    pool.release(handedOut);
+    await pool.destroy();
+    assert.notStrictEqual(handedOut, txConnection);
+    assert.strictEqual(handedOut.hasError, undefined);
+  });
+
+  it('unmarks the connection when the commit is refused and the transaction keeps it', function(_t, done) {
+    const tx = stubWithLevel(mssql.ISOLATION_LEVEL.READ_UNCOMMITTED);
+    let seenAtCommit;
+    tx.commit = function(cb) {
+      seenAtCommit = tx._acquiredConnection.hasError;
+      setImmediate(cb, driverError('ENOTBEGUN'));
+    };
+    finishTransaction(tx, 'commit', function(err) {
+      assert.strictEqual(err && err.code, 'ENOTBEGUN');
+      assert.strictEqual(seenAtCommit, true);
+      assert.strictEqual(tx._acquiredConnection.hasError, false);
+      done();
+    });
+  });
+
   it('leaves the connection alone for a READ COMMITTED transaction', function(_t, done) {
     const tx = stubWithLevel(mssql.ISOLATION_LEVEL.READ_COMMITTED);
     finishTransaction(tx, 'rollback', function(err) {
