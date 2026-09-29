@@ -188,29 +188,32 @@ describe('rollback while a statement is in flight (PRV-7808)', {skip: !config &&
     }
   });
 
-  it('refuses a commit requested while a statement is still running, rolls back, persists nothing', async () => {
-    const shortPool = await new mssql.ConnectionPool({...config, requestTimeout: 500}).connect();
-    try {
-      const before = (await query(shortPool, `SELECT n FROM ${LOCK_TABLE} WHERE id = 1`)).recordset[0].n;
-      const tx = new mssql.Transaction(shortPool);
-      await tx.begin();
-      await new mssql.Request(tx).query(`UPDATE ${LOCK_TABLE} SET n = n + 1 WHERE id = 1`);
-      // Ends by the driver's timeout or by our cancel; either way the commit must not go through.
-      const slow = startInTransaction(tx, 'SELECT 1; WAITFOR DELAY \'00:00:10\'');
-      await delay(100);
+  // At READ UNCOMMITTED the connector's isolation reset is what the running statement refuses first.
+  for (const level of ['default', 'READ_UNCOMMITTED']) {
+    it(`refuses a commit requested while a statement is running, rolls back, persists nothing (${level})`, async () => {
+      const shortPool = await new mssql.ConnectionPool({...config, requestTimeout: 500}).connect();
+      try {
+        const before = (await query(shortPool, `SELECT n FROM ${LOCK_TABLE} WHERE id = 1`)).recordset[0].n;
+        const tx = new mssql.Transaction(shortPool);
+        await tx.begin(level === 'default' ? undefined : mssql.ISOLATION_LEVEL[level]);
+        await new mssql.Request(tx).query(`UPDATE ${LOCK_TABLE} SET n = n + 1 WHERE id = 1`);
+        // Ends by the driver's timeout or by our cancel; either way the commit must not go through.
+        const slow = startInTransaction(tx, 'SELECT 1; WAITFOR DELAY \'00:00:10\'');
+        await delay(100);
 
-      await assert.rejects(
-        new Promise((resolve, reject) => finishTransaction(tx, 'commit', (err) => (err ? reject(err) : resolve()))),
-        (err) => err.code === 'EREQINPROG' && /rolled back instead/.test(err.message),
-      );
-      await slow.promise;
-      assert.strictEqual(shortPool.borrowed, 0);
-      const after = (await query(shortPool, `SELECT n FROM ${LOCK_TABLE} WHERE id = 1`)).recordset[0].n;
-      assert.strictEqual(after, before, 'the first update must not be committed on its own');
-    } finally {
-      await shortPool.close();
-    }
-  });
+        await assert.rejects(
+          new Promise((resolve, reject) => finishTransaction(tx, 'commit', (err) => (err ? reject(err) : resolve()))),
+          (err) => err.code === 'EREQINPROG' && /rolled back instead/.test(err.message),
+        );
+        await slow.promise;
+        assert.strictEqual(shortPool.borrowed, 0);
+        const after = (await query(shortPool, `SELECT n FROM ${LOCK_TABLE} WHERE id = 1`)).recordset[0].n;
+        assert.strictEqual(after, before, 'the first update must not be committed on its own');
+      } finally {
+        await shortPool.close();
+      }
+    });
+  }
 
   it('commits normally when every statement has finished', async () => {
     const before = (await query(pool, `SELECT n FROM ${LOCK_TABLE} WHERE id = 1`)).recordset[0].n;

@@ -479,18 +479,43 @@ describe('finishTransaction restoring READ COMMITTED', function() {
     });
   });
 
-  // The statement that refused the reset can end before the commit is checked, so the commit goes through
-  // without the retry that would have reset the session.
-  it('marks the connection when the reset was refused but the commit went through', function(_t, done) {
+  // The statement that refused the reset can end before its callback runs; the commit must still not happen.
+  it('rolls back instead of committing when a running statement refused the reset', function(_t, done) {
     const tx = stubWithLevel(mssql.ISOLATION_LEVEL.READ_UNCOMMITTED);
+    tx._activeRequest = {};
     tx.acquire = function(_request, cb) {
       tx.resets++;
-      setImmediate(cb, driverError('EREQINPROG'));
+      if (tx.resets === 1) {
+        tx._activeRequest = null;
+        return setImmediate(cb, driverError('EREQINPROG'));
+      }
+      setImmediate(cb, driverError('ESOCKET'));
     };
     finishTransaction(tx, 'commit', function(err) {
+      assert.strictEqual(err && err.code, 'EREQINPROG');
+      assert.strictEqual(tx.calls.commit, 0);
+      assert.strictEqual(tx.calls.rollback, 1);
+      done();
+    });
+  });
+
+  it('retries the rollback once a running statement that refused the reset has ended', function(_t, done) {
+    const tx = stubWithLevel(mssql.ISOLATION_LEVEL.READ_UNCOMMITTED);
+    tx._activeRequest = {};
+    tx.acquire = function(_request, cb) {
+      tx.resets++;
+      if (tx.resets === 1) {
+        return setImmediate(cb, driverError('EREQINPROG'));
+      }
+      setImmediate(cb, driverError('ESOCKET'));
+    };
+    setTimeout(function() {
+      tx._activeRequest = null;
+    }, 150);
+    finishTransaction(tx, 'rollback', function(err) {
       assert.ifError(err);
-      assert.strictEqual(tx.calls.commit, 1);
-      assert.strictEqual(tx._acquiredConnection.hasError, true);
+      assert.strictEqual(tx.resets, 2);
+      assert.strictEqual(tx.calls.rollback, 1);
       done();
     });
   });
