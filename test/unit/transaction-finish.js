@@ -434,3 +434,103 @@ describe('beginTransaction when BEGIN fails after the connection was acquired', 
     });
   });
 });
+
+describe('finishTransaction restoring READ COMMITTED', function() {
+  const mssql = require('mssql');
+
+  /**
+   * Stub transaction at `isolationLevel` whose reset batch fails at the driver: `resets` counts how many
+   * times the connector tried to run it.
+   * @param {number} isolationLevel
+   * @return {Object} the stub
+   */
+  function stubWithLevel(isolationLevel) {
+    const tx = stubTransaction([]);
+    tx.isolationLevel = isolationLevel;
+    tx.connected = true;
+    tx.config = {};
+    tx.resets = 0;
+    tx.acquire = function(_request, cb) {
+      tx.resets++;
+      setImmediate(cb, driverError('ESOCKET'));
+    };
+    return tx;
+  }
+
+  it('issues no reset for a READ COMMITTED transaction', function(_t, done) {
+    const tx = stubWithLevel(mssql.ISOLATION_LEVEL.READ_COMMITTED);
+    finishTransaction(tx, 'commit', function(err) {
+      assert.ifError(err);
+      assert.strictEqual(tx.resets, 0);
+      assert.strictEqual(tx.calls.commit, 1);
+      done();
+    });
+  });
+
+  it('commits when the reset fails, and marks the connection so the pool drops it', function(_t, done) {
+    const tx = stubWithLevel(mssql.ISOLATION_LEVEL.READ_UNCOMMITTED);
+    finishTransaction(tx, 'commit', function(err) {
+      assert.ifError(err);
+      assert.strictEqual(tx.resets, 1);
+      assert.strictEqual(tx.calls.commit, 1);
+      assert.strictEqual(tx._acquiredConnection.hasError, true);
+      done();
+    });
+  });
+
+  // The statement that refused the reset can end before the commit is checked, so the commit goes through
+  // without the retry that would have reset the session.
+  it('marks the connection when the reset was refused but the commit went through', function(_t, done) {
+    const tx = stubWithLevel(mssql.ISOLATION_LEVEL.READ_UNCOMMITTED);
+    tx.acquire = function(_request, cb) {
+      tx.resets++;
+      setImmediate(cb, driverError('EREQINPROG'));
+    };
+    finishTransaction(tx, 'commit', function(err) {
+      assert.ifError(err);
+      assert.strictEqual(tx.calls.commit, 1);
+      assert.strictEqual(tx._acquiredConnection.hasError, true);
+      done();
+    });
+  });
+
+  it('leaves the connection alone for a READ COMMITTED transaction', function(_t, done) {
+    const tx = stubWithLevel(mssql.ISOLATION_LEVEL.READ_COMMITTED);
+    finishTransaction(tx, 'rollback', function(err) {
+      assert.ifError(err);
+      assert.strictEqual(tx._acquiredConnection.hasError, undefined);
+      done();
+    });
+  });
+});
+
+describe('beginTransaction when BEGIN fails at a non-default level', function() {
+  const mssql = require('mssql');
+
+  it('marks the released connection, since the server may already have applied the level', function(_t, done) {
+    const connection = {removeListener: function() {}};
+    const fakeMssql = {
+      ISOLATION_LEVEL: mssql.ISOLATION_LEVEL,
+      Transaction: function(parent) {
+        this.parent = parent;
+        this._abort = function() {};
+        this.begin = function(level, cb) {
+          this.isolationLevel = level;
+          this._acquiredConnection = connection;
+          this._acquiredConfig = {};
+          setImmediate(cb, driverError('ETIMEOUT'));
+        };
+      },
+    };
+    function FakeConnector() {
+      this.client = {release: function() {}};
+    }
+    mixinTransaction(FakeConnector, fakeMssql);
+
+    new FakeConnector().beginTransaction('READ UNCOMMITTED', function(err) {
+      assert.strictEqual(err && err.code, 'ETIMEOUT');
+      assert.strictEqual(connection.hasError, true);
+      done();
+    });
+  });
+});
