@@ -13,6 +13,7 @@
 // the row locks the transaction held are released.
 const {describe, it, before, after} = require('node:test');
 const assert = require('node:assert');
+const {promisify} = require('node:util');
 const mssql = require('mssql');
 const {finishTransaction} = require('../../lib/transaction');
 
@@ -202,7 +203,7 @@ describe('rollback while a statement is in flight (PRV-7808)', {skip: !config &&
         await delay(100);
 
         await assert.rejects(
-          new Promise((resolve, reject) => finishTransaction(tx, 'commit', (err) => (err ? reject(err) : resolve()))),
+          promisify(finishTransaction)(tx, 'commit'),
           (err) => err.code === 'EREQINPROG' && /rolled back instead/.test(err.message),
         );
         await slow.promise;
@@ -220,7 +221,7 @@ describe('rollback while a statement is in flight (PRV-7808)', {skip: !config &&
     const tx = new mssql.Transaction(pool);
     await tx.begin();
     await new mssql.Request(tx).query(`UPDATE ${LOCK_TABLE} SET n = n + 1 WHERE id = 1`);
-    await new Promise((resolve, reject) => finishTransaction(tx, 'commit', (err) => (err ? reject(err) : resolve())));
+    await promisify(finishTransaction)(tx, 'commit');
     assert.strictEqual(pool.borrowed, 0);
     const after = (await query(pool, `SELECT n FROM ${LOCK_TABLE} WHERE id = 1`)).recordset[0].n;
     assert.strictEqual(after, before + 1);

@@ -10,6 +10,7 @@
 // Same env as rollback-in-flight.js; skipped when MSSQL_HOST is unset.
 const {describe, it, before, after} = require('node:test');
 const assert = require('node:assert');
+const {promisify} = require('node:util');
 const mssql = require('mssql');
 const {finishTransaction, discardOnServerAbort} = require('../../lib/transaction');
 
@@ -55,9 +56,7 @@ async function runAndFinish(pool, level, operation) {
   const tx = new mssql.Transaction(pool);
   await tx.begin(level);
   const inside = await sessionState(tx);
-  await new Promise((resolve, reject) => {
-    finishTransaction(tx, operation, (err) => (err ? reject(err) : resolve()));
-  });
+  await promisify(finishTransaction)(tx, operation);
   return inside;
 }
 
@@ -108,11 +107,16 @@ describe('isolation level does not leak to the pool', {skip: !config && 'MSSQL_H
     await tx.begin(mssql.ISOLATION_LEVEL.READ_UNCOMMITTED);
     const inside = await sessionState(tx);
     const started = Date.now();
-    const running = new mssql.Request(tx).query('WAITFOR DELAY \'00:00:02\'').then(() => 'ran', (err) => err.code);
+    const running = (async () => {
+      try {
+        await new mssql.Request(tx).query('WAITFOR DELAY \'00:00:02\'');
+        return 'ran';
+      } catch (err) {
+        return err.code;
+      }
+    })();
 
-    await new Promise((resolve, reject) => {
-      finishTransaction(tx, 'rollback', (err) => (err ? reject(err) : resolve()));
-    });
+    await promisify(finishTransaction)(tx, 'rollback');
 
     assert.strictEqual(await running, 'ran', 'the statement must hold the connection, so the first reset is refused');
     assert.ok(Date.now() - started >= 1900, 'the rollback must have waited for the statement');
@@ -134,9 +138,7 @@ describe('isolation level does not leak to the pool', {skip: !config && 'MSSQL_H
     discardOnServerAbort(tx);
     const inside = await sessionState(tx);
     const err = await new mssql.Request(tx).batch('SET XACT_ABORT ON; SELECT 1/0').catch((e) => e);
-    await new Promise((resolve, reject) => {
-      finishTransaction(tx, 'rollback', (rollbackErr) => (rollbackErr ? reject(rollbackErr) : resolve()));
-    });
+    await promisify(finishTransaction)(tx, 'rollback');
 
     assert.strictEqual(err.number, 8134);
     const after = await sessionState(pool);
