@@ -8,6 +8,7 @@
 // behaves like mssql's Transaction (refuses with EREQINPROG while `_activeRequest` is set).
 const {describe, it} = require('node:test');
 const assert = require('node:assert');
+const {promisify} = require('node:util');
 const mixinTransaction = require('../../lib/transaction');
 const {finishTransaction} = mixinTransaction;
 
@@ -523,11 +524,7 @@ describe('finishTransaction restoring READ COMMITTED', function() {
       setImmediate(cb, null);
     };
 
-    await new Promise(function(resolve, reject) {
-      finishTransaction(tx, 'commit', function(err) {
-        return err ? reject(err) : resolve();
-      });
-    });
+    await promisify(finishTransaction)(tx, 'commit');
     const handedOut = await waiting;
     // tarn's destroy waits for every borrowed connection, and its reaper timer keeps the process alive.
     pool.release(handedOut);
