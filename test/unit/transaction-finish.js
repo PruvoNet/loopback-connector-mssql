@@ -46,6 +46,23 @@ function stubTransaction(failWith) {
   return tx;
 }
 
+/**
+ * The driver checks `_activeRequest` when `op` is called but delivers the refusal on a later tick; here the
+ * running statement ends in between, so the refusal arrives with `_activeRequest` already null.
+ * @param {Object} tx a `stubTransaction`
+ * @param {'commit'|'rollback'} op
+ * @return {Object} the same stub, with a statement running
+ */
+function refusedByEndedStatement(tx, op) {
+  const driverCall = tx[op];
+  tx._activeRequest = {};
+  tx[op] = function(cb) {
+    driverCall(cb);
+    tx._activeRequest = null;
+  };
+  return tx;
+}
+
 describe('finishTransaction', function() {
   it('rolls back once when the driver accepts', function(_t, done) {
     const tx = stubTransaction([]);
@@ -124,6 +141,19 @@ describe('finishTransaction', function() {
       assert.strictEqual(tx.calls.rollback, 1);
       done();
     });
+  });
+
+  it('rolls back when the statement that refused the commit ended before the refusal arrived', async function() {
+    const tx = refusedByEndedStatement(stubTransaction(['EREQINPROG']), 'commit');
+    await assert.rejects(promisify(finishTransaction)(tx, 'commit'), {code: 'EREQINPROG', message: /rolled back instead/});
+    assert.strictEqual(tx.calls.commit, 1);
+    assert.strictEqual(tx.calls.rollback, 1);
+  });
+
+  it('retries a rollback whose refusing statement ended before the refusal arrived', async function() {
+    const tx = refusedByEndedStatement(stubTransaction(['EREQINPROG']), 'rollback');
+    await promisify(finishTransaction)(tx, 'rollback');
+    assert.strictEqual(tx.calls.rollback, 2);
   });
 
   it('does not hide an aborted transaction from commit', function(_t, done) {
